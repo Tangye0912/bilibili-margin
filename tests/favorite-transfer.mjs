@@ -22,19 +22,22 @@ try{
  await page.evaluate(()=>dispatchEvent(new Event('margin:open-fav',{cancelable:true})));
  const sheet=page.getByRole('dialog',{name:'收藏夹',exact:true});await sheet.locator('.fav-grid .card').first().waitFor();
  const card=sheet.locator('.fav-grid .card').first();
- const originalCount=await sheet.locator('.fav-grid .card').count();
+ // 收藏夹是渐进渲染的：慢机器上首次只出一部分卡片，随后才补齐。
+ // 计数前先等列表稳定，否则同一份代码在 CI 与本地会数出不同的结果。
+ const settle=async()=>{let last=-1,stable=0;for(let i=0;i<50;i++){const now=await sheet.locator('.fav-grid .card').count();stable=now===last?stable+1:0;if(stable>=2&&now>0)return now;last=now;await page.waitForTimeout(120);}return last;};
+ const originalCount=await settle();
  await card.getByRole('button',{name:'复制到…',exact:true}).click();
  assert.equal(await card.getByRole('combobox',{name:'目标收藏夹'}).locator('option').count(),2);
  await card.getByRole('combobox').selectOption('202');
  await card.getByRole('button',{name:'确认复制',exact:true}).click();
  await card.getByText('已复制到「动效参考」',{exact:true}).waitFor();
- assert.equal(await sheet.locator('.fav-grid .card').count(),originalCount);
+ assert.equal(await settle(),originalCount);
  assert.equal(posts.length,1);assert.equal(posts[0].body.src_media_id,'101');assert.equal(posts[0].body.tar_media_id,'202');assert.equal(posts[0].body.resources,'1000:2');
  checks.push('copy targets another owned folder and retains source video');
  fail=true;
  await card.getByRole('button',{name:'移动到…',exact:true}).click();await card.getByRole('combobox').selectOption('303');
  await card.getByRole('button',{name:'确认移动',exact:true}).click();await card.getByRole('alert').filter({hasText:'移动失败'}).waitFor();
- assert.equal(await sheet.locator('.fav-grid .card').count(),originalCount);assert.equal(posts.length,2);
+ assert.equal(await settle(),originalCount);assert.equal(posts.length,2);
  checks.push('failed move retains video, selected destination and retry form');
  fail=false;release=null;
  await card.getByRole('button',{name:'确认移动',exact:true}).click();
