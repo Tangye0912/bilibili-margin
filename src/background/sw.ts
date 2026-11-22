@@ -14,6 +14,7 @@ import { SEARCH_HISTORY_KEY, type HistoryMessage } from '../shared/privacy';
 import { recordVersionInstall } from './updates';
 import { handleWeatherLocation } from './weather-location';
 import type { WeatherLocationMessage } from '../shared/weather-location';
+import { initScheduler, runCheck, syncSchedule, UPDATE_ALARM } from './update-scheduler';
 
 let queue: Promise<unknown> = Promise.resolve();
 const serial = <T>(fn: () => Promise<T>): Promise<T> => { const p = queue.then(fn, fn); queue = p.catch(() => {}); return p; };
@@ -22,12 +23,23 @@ void authReady.catch(() => {});
 chrome.storage.onChanged.addListener((changes, area) => {
   const change = changes['margin:settings'];
   if (area !== 'local' || !change) return;
-  const previous = change.oldValue as { searchHistory?: boolean } | undefined;
-  const next = change.newValue as { searchHistory?: boolean } | undefined;
+  const previous = change.oldValue as { searchHistory?: boolean; updateInterval?: number } | undefined;
+  const next = change.newValue as { searchHistory?: boolean; updateInterval?: number } | undefined;
   if (next?.searchHistory !== true) {
     void serial(() => previous?.searchHistory === true ? clearSearchHistory() : chrome.storage.local.remove(SEARCH_HISTORY_KEY)).catch(() => {});
   }
+  // 更新周期变了就重新排期；刚打开周期时顺便查一次，不用等第一个闹钟
+  if (previous?.updateInterval !== next?.updateInterval) {
+    void serial(() => syncSchedule()).then(() => (next?.updateInterval ? runCheck() : undefined)).catch(() => {});
+  }
 });
+
+/* ---------- 自动检查更新（v0.61） ---------- */
+chrome.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name !== UPDATE_ALARM) return;
+  void serial(() => runCheck()).catch(() => {});
+});
+void initScheduler().catch(() => {});
 
 async function handle(m: FpMessage): Promise<unknown> {
   return handleFootprint(m);
@@ -85,10 +97,15 @@ async function handleApp(m: AppMessage): Promise<unknown> {
 }
 
 type OpenVideoTabMessage = { margin: 'open-video-tab'; bvid: string };
+type OpenUpdateMessage = { margin: 'open-update' };
 
-chrome.runtime.onMessage.addListener((m: FpMessage | AppMessage | SponsorMessage | HistoryMessage | WeatherLocationMessage | OpenVideoTabMessage, sender, reply) => {
-  if (!m || !['app', 'fp', 'sponsor', 'privacy', 'weather-location', 'open-video-tab'].includes(m.margin)) return;
+chrome.runtime.onMessage.addListener((m: FpMessage | AppMessage | SponsorMessage | HistoryMessage | WeatherLocationMessage | OpenVideoTabMessage | OpenUpdateMessage, sender, reply) => {
+  if (!m || !['app', 'fp', 'sponsor', 'privacy', 'weather-location', 'open-video-tab', 'open-update'].includes(m.margin)) return;
   if (!trustedSender(sender, chrome.runtime.id)) { reply({ ok: false, error: '消息来源无效' }); return; }
+  if (m.margin === 'open-update') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('update.html') }).then(() => reply({ ok: true }), () => reply({ ok: false }));
+    return true;
+  }
   if (m.margin === 'open-video-tab') {
     if (!sender.tab || typeof m.bvid !== 'string' || !/^BV[0-9A-Za-z]{10}$/.test(m.bvid)) {
       reply({ ok: false });

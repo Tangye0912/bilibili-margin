@@ -15,6 +15,7 @@ import { clearLoc, loadLoc, savedLoc, setLoc as setLocWithName } from '../api/we
 import { createCityPicker } from './city-picker';
 import { forgetSearch } from '../api/search-history';
 import { checkRelease, newerRelease } from '../../shared/releases';
+import { readUpdateState } from '../../shared/update-store';
 
 export interface SettingsPanel { sheet: SettingsPage; sync(s: Settings): void }
 
@@ -595,13 +596,41 @@ function buildSettingsPanel(sheet: SettingsPage, get: () => Settings, currentSha
   };
 
   const updateStatus = h('small', { role: 'status', 'aria-live': 'polite', style: 'display:block;max-width:240px;margin-top:6px;white-space:normal;overflow-wrap:anywhere;line-height:1.5' });
+  /** 打开独立更新页：下载、解包、选目录写入都在那边完成 */
+  const openUpdate = h('button', { type: 'button', class: 'ghost small', onclick: async () => {
+    openUpdate.disabled = true;
+    try {
+      const result = await chrome.runtime.sendMessage({ margin: 'open-update' });
+      if (!result?.ok) throw new Error();
+    } catch { say('打不开更新页，请从扩展弹窗进入'); }
+    finally { openUpdate.disabled = false; }
+  } }, '打开更新页') as HTMLButtonElement;
+  /** 自动检查更新的周期（小时）：0 = 不自动检查 */
+  const intervalOptions: [string, string][] = [['0', '关闭'], ['1', '1 小时'], ['6', '6 小时'], ['12', '12 小时'], ['24', '每天'], ['72', '3 天'], ['168', '每周']];
+  const updateInterval = segmented<string>(intervalOptions, String(s0.updateInterval), (v) => save({ updateInterval: Number(v) }));
+  const autoInstall = toggle(s0.autoUpdate, '自动安装更新', (v) => save({ autoUpdate: v }));
+  const describeUpdate = (s: Settings) => {
+    const hours = s.updateInterval;
+    if (!hours) return '自动检查已关闭';
+    const every = hours === 24 ? '每天' : hours === 168 ? '每周' : hours < 24 ? `每 ${hours} 小时` : `每 ${hours / 24} 天`;
+    return `${every}检查一次${s.autoUpdate ? '，有新版本就自动装上' : ''}`;
+  };
+  /** 抽屉标题右边的一句话摘要；后台定时检查发现的新版本也写在这里 */
+  let updateSummary = describeUpdate(s0);
+  const paintUpdateSummary = async () => {
+    const state = await readUpdateState();
+    updateSummary = state ? `发现新版 v${state.tag}${state.ready ? '（已下载）' : ''}` : describeUpdate(get());
+    drawers.forEach(f => f());
+  };
+  void paintUpdateSummary();
   const checkUpdate = h('button', { type: 'button', class: 'ghost small', onclick: async () => {
     if (checkUpdate.disabled) return;
     checkUpdate.disabled = true; updateStatus.textContent = '正在检查更新…';
     try {
       const release = await checkRelease(true);
       if (newerRelease(release.tag, chrome.runtime.getManifest().version)) {
-        updateStatus.replaceChildren(h('a', { href: release.url, target: '_blank', rel: 'noopener noreferrer' }, `${release.name || `v${release.tag}`} · 查看新版`));
+        updateStatus.replaceChildren(h('a', { href: release.url, target: '_blank', rel: 'noopener noreferrer' }, `${release.name || `v${release.tag}`} · 查看新版`), ' ', openUpdate);
+        void paintUpdateSummary();
       } else updateStatus.textContent = newerRelease(chrome.runtime.getManifest().version, release.tag) ? '当前版本高于最新正式版' : '当前已是最新正式版';
     } catch (error) {
       updateStatus.textContent = (error as Error).name === 'PrivacyBlocked'
@@ -719,6 +748,15 @@ function buildSettingsPanel(sheet: SettingsPage, get: () => Settings, currentSha
 
   sheet.section('privacy', '隐私与数据', '外部服务、搜索记录和备份。',
     row('允许外部辅助服务', '默认关闭；开启后允许天气定位、天气查询、社区广告片段和 GitHub 更新查询。服务会接收请求 IP。', externalT),
+    drawer('自动更新', () => updateSummary,
+      h('p', { class: 'sd-note' }, '按周期到 GitHub 查一次最新正式版。商店安装的版本由浏览器自己更新，这里只对解压安装的版本生效。'),
+      block('检查周期', '关闭后不自动检查；开启后按下面的间隔去查一次', updateInterval),
+      row('自动安装更新', '发现新版本后自动下载并写回扩展目录；需要先在更新页里授权一次扩展文件夹', autoInstall),
+      h('div', { class: 'row' },
+        h('div', { class: 'row-label' },
+          h('span', {}, '立即更新'),
+          h('small', {}, '下载新版、选好扩展文件夹并写入，然后重新加载扩展')),
+        h('div', { class: 'data-acts' }, openUpdate))),
     row('保存最近搜索', '默认关闭。开启后保存在扩展内，最多 8 条、保留 30 天；仍在网页里的旧版记录会在开启后移入。', historyT),
     row('搜索记录', null, clearHistory),
     h('p', { class: 'stg-note' }, 'App 授权默认仅保留在当前会话；可在实验功能中开启「记住授权」，最多保存 30 天。'),
@@ -741,6 +779,9 @@ function buildSettingsPanel(sheet: SettingsPage, get: () => Settings, currentSha
     sync(s) {
       enabledT.setAttribute('aria-checked', String(s.enabled));
       externalT.setAttribute('aria-checked', String(s.privacyExternal));
+      updateInterval.set(String(s.updateInterval));
+      autoInstall.setAttribute('aria-checked', String(s.autoUpdate));
+      void paintUpdateSummary();
       historyT.setAttribute('aria-checked', String(s.searchHistory));
       poolCur = null;
       drawers.forEach((f) => f());

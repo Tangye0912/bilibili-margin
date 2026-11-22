@@ -55,7 +55,18 @@ function paint(s: Settings): void {
 // 从 Edge 加载项商店安装的版本带 update_url，由浏览器自动更新，不显示提示。
 void (async () => {
   const mf = chrome.runtime.getManifest() as chrome.runtime.Manifest & { update_url?: string };
-  if (mf.update_url || !(await loadSettings()).privacyExternal) return;
+  const settings = await loadSettings();
+  const hours = settings.updateInterval;
+  const cycle = document.getElementById('cycle') as HTMLElement;
+  cycle.textContent = hours
+    ? `自动检查：${hours === 24 ? '每天' : hours === 168 ? '每周' : hours < 24 ? `每 ${hours} 小时` : `每 ${hours / 24} 天`}${settings.autoUpdate ? '，有新版本自动装上' : ''}`
+    : '自动检查已关闭，可在设置里开启';
+  const btn = document.getElementById('updbtn') as HTMLButtonElement;
+  btn.addEventListener('click', () => {
+    btn.disabled = true;
+    void chrome.runtime.sendMessage({ margin: 'open-update' }).finally(() => { btn.disabled = false; });
+  });
+  if (mf.update_url || !settings.privacyExternal) return;
   let info;
   try { info = await checkRelease(); } catch { return; }
   if (newerRelease(info.tag, mf.version)) {
@@ -64,5 +75,6 @@ void (async () => {
     a.href = info.url;
     document.getElementById('updv')!.textContent = info.name || 'v' + info.tag;
     a.classList.add('on');
+    btn.hidden = false;
   }
 })();

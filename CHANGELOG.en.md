@@ -6,6 +6,23 @@ New entries are grouped under Added, Changed, and Fixed, following [Keep a Chang
 
 ## Unreleased
 
+## [v0.6.89](https://github.com/jiuyang5354/bilibili-margin/releases/tag/v0.60.89) · 2026-11-22 · Automatic updates
+
+Display version 0.6.89, browser update version 0.60.89.
+
+### Added
+
+- Settings → Privacy & data → Automatic updates: pick how often the extension checks for updates (off / 1 hour / 6 hours / 12 hours / daily / 3 days / weekly). On each tick it asks GitHub for the latest stable release and marks the extension icon with 新 when a newer one exists.
+- With "Install updates automatically" on, the release archive is downloaded to your machine as soon as it is found. Once you have authorized the extension folder, the background writes the new version straight into it and reloads the extension — no manual steps.
+- A dedicated update page: current and latest version, download the archive, choose the extension folder, write the files and reload, with a note at every step. Browsers do not let an extension change its own install location, so the folder is picked by hand once and then remembered.
+- The extension popup shows the current check interval and offers an "Update now" button when a newer version is available.
+
+### Changed
+
+- When the GitHub API answers 403 because the unauthenticated quota (60 requests per IP per hour) is exhausted, the version lookup falls back to the release page redirect instead of failing. Downloads follow GitHub's own object storage redirect as well.
+- Release archives are unpacked with the browser's own decompression stream, no third-party library. Paths that would escape the extension folder are rejected.
+- Downloads are restricted to official GitHub URLs, and a redirect is only followed to GitHub's own object storage.
+
 ## [v0.6.88](https://github.com/jiuyang5354/bilibili-margin/releases/tag/v0.60.88) · 2026-11-22 · Native search, glass surfaces and first-day footprints
 
 Display version 0.6.88, browser update version 0.60.88.

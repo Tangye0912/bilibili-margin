@@ -29,8 +29,19 @@ const SERVICES = {
   'weather-cn': ['www.nmc.cn', '/rest/'],
   sponsor: ['bsbsb.top', '/api/skipSegments/'],
   update: ['api.github.com', '/repos/jiuyang5354/bilibili-margin/releases/latest'],
+  'update-asset': ['github.com', '/jiuyang5354/bilibili-margin/releases/download/'],
+  'release-page': ['github.com', '/jiuyang5354/bilibili-margin/releases/'],
 } as const;
 type Service = keyof typeof SERVICES;
+
+/**
+ * 允许跟随的跳转目标：发布包会 302 到 GitHub 的对象存储，发布页会 302 到 tag 页。
+ * 只认 GitHub 自己的域名，其余服务仍然禁止重定向（redirect: error）。
+ */
+const REDIRECT_HOSTS: Partial<Record<Service, string[]>> = {
+  'update-asset': ['release-assets.githubusercontent.com', 'objects.githubusercontent.com'],
+  'release-page': ['github.com'],
+};
 const pending = new Set<AbortController>();
 let watching = false;
 
@@ -39,7 +50,10 @@ export async function optionalFetch(service: Service, address: string, init: Req
   const url = new URL(address);
   const [host, path] = SERVICES[service];
   const validPath = service === 'sponsor' ? /^\/api\/skipSegments\/[a-f0-9]{4}$/.test(url.pathname)
-    : service === 'weather-cn' ? /^\/rest\/(?:province(?:\/A[A-Z]{2})?|weather)$/.test(url.pathname) : url.pathname === path;
+    : service === 'weather-cn' ? /^\/rest\/(?:province(?:\/A[A-Z]{2})?|weather)$/.test(url.pathname)
+      : service === 'update-asset' ? url.pathname.startsWith(path)
+        : service === 'release-page' ? url.pathname.startsWith(path) && !url.pathname.startsWith('/jiuyang5354/bilibili-margin/releases/download/')
+          : url.pathname === path;
   if (url.protocol !== 'https:' || url.hostname !== host || url.port || url.username || url.password || !validPath || url.hash) throw new Error('外部请求地址不受支持');
   // Firefox content-script Xrays may expose keys() without a usable Symbol.iterator.
   let badQuery = false;
@@ -69,8 +83,19 @@ export async function optionalFetch(service: Service, address: string, init: Req
   if (init.signal?.aborted) controller.abort();
   const timer = setTimeout(abort, 8000);
   pending.add(controller);
+  const allowed = REDIRECT_HOSTS[service];
   try {
-    return await fetch(url.href, { ...init, headers, credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error', signal: controller.signal });
+    const response = await fetch(url.href, { ...init, headers, credentials: 'omit', referrerPolicy: 'no-referrer', redirect: allowed ? 'follow' : 'error', signal: controller.signal });
+    // 跟随了跳转就核对最终主机：包只能来自 GitHub 自己的对象存储，不接受第三方地址。
+    if (allowed && response.redirected) {
+      let finalHost = '';
+      try { finalHost = new URL(response.url).hostname; } catch { finalHost = ''; }
+      if (!allowed.includes(finalHost)) {
+        await response.body?.cancel();
+        throw new Error('外部请求地址不受支持');
+      }
+    }
+    return response;
   } finally {
     clearTimeout(timer);
     pending.delete(controller);

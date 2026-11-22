@@ -3,11 +3,11 @@
   "name": "__MSG_extensionName__",
   "default_locale": "en",
   "short_name": "MARGIN",
-  "version": "0.60.88",
-  "version_name": "0.6.88",
+  "version": "0.60.89",
+  "version_name": "0.6.89",
   "minimum_chrome_version": "110",
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'; connect-src 'self' https://app.bilibili.com https://bsbsb.top https://api.github.com https://ipwho.is https://api.open-meteo.com https://geocoding-api.open-meteo.com https://www.nmc.cn"
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'; connect-src 'self' https://app.bilibili.com https://bsbsb.top https://api.github.com https://github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com https://ipwho.is https://api.open-meteo.com https://geocoding-api.open-meteo.com https://www.nmc.cn"
   },
   "description": "__MSG_extensionDescription__",
   "icons": {
@@ -23,11 +23,15 @@
     }
   },
   "permissions": [
-    "storage"
+    "storage",
+    "alarms"
   ],
   "host_permissions": [
     "https://app.bilibili.com/*",
-    "https://bsbsb.top/*"
+    "https://bsbsb.top/*",
+    "https://github.com/*",
+    "https://objects.githubusercontent.com/*",
+    "https://release-assets.githubusercontent.com/*"
   ],
   "background": {
     "service_worker": "background.js"
